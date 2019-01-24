@@ -28,7 +28,7 @@ mod update;
 
 pub mod generator;
 
-pub use self::blockchain::{BlockProvider, BlockChain, BlockChainDB, BlockChainDBHandler};
+pub use self::blockchain::{BlockProvider, BlockChain, BlockChainDB, BlockChainDBHandler, BlockChainProxy};
 pub use self::cache::CacheSize;
 pub use self::config::Config;
 pub use self::import_route::ImportRoute;

@@ -49,6 +49,7 @@ use types::views::BlockView;
 use vm::Schedule;
 
 use block::{OpenBlock, SealedBlock, ClosedBlock};
+use blockchain::{BlockChainProxy, BlockProvider};
 use call_contract::{CallContract, RegistryInfo};
 use client::{
 	Nonce, Balance, ChainInfo, BlockInfo, ReopenBlock, TransactionInfo,
@@ -602,6 +603,13 @@ impl Call for TestBlockChainClient {
 
 	fn estimate_gas(&self, _t: &SignedTransaction, _state: &Self::State, _header: &Header) -> Result<U256, CallError> {
 		Ok(21000.into())
+	}
+}
+
+impl BlockChainProxy for TestBlockChainClient {
+	type BlockChain = BlockProvider;
+	fn blockchain(&self) -> Self::BlockChain {
+		unimplemented!()
 	}
 }
 

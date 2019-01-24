@@ -196,6 +196,88 @@ pub trait BlockProvider {
 		where F: Fn(&LogEntry) -> bool + Send + Sync, Self: Sized;
 }
 
+/// TODO: Add docs for trait
+pub trait BlockChainProxy {
+	/// TODO: Add docs for associated type
+	type BlockChain: BlockProvider;
+
+	/// TODO: Add docs for trait method
+	fn blockchain(&self) -> Self::BlockChain;
+}
+
+impl<BP: BlockProvider, T: BlockChainProxy<BlockChain=BP>> BlockProvider for T {
+	/// Returns true if the given block is known
+	/// (though not necessarily a part of the canon chain).
+	fn is_known(&self, hash: &H256) -> bool {
+		self.blockchain().is_known(hash)
+	}
+
+	fn first_block(&self) -> Option<H256> {
+		self.blockchain().first_block()
+	}
+
+	fn best_ancient_block(&self) -> Option<H256> {
+		self.blockchain().best_ancient_block()
+	}
+
+	fn best_ancient_number(&self) -> Option<BlockNumber> {
+		self.blockchain().best_ancient_number()
+	}
+
+	/// Get raw block data
+	fn block(&self, hash: &H256) -> Option<encoded::Block> {
+		self.blockchain().block(hash)
+	}
+
+
+	/// Get block header data
+	fn block_header_data(&self, hash: &H256) -> Option<encoded::Header> {
+		self.blockchain().block_header_data(hash)
+	}
+
+	/// Get block body data
+	fn block_body(&self, hash: &H256) -> Option<encoded::Body> {
+		self.blockchain().block_body(hash)
+	}
+
+	/// Get the familial details concerning a block.
+	fn block_details(&self, hash: &H256) -> Option<BlockDetails> {
+		self.blockchain().block_details(hash)
+	}
+
+	/// Get the hash of given block's number.
+	fn block_hash(&self, index: BlockNumber) -> Option<H256> {
+		self.blockchain().block_hash(index)
+	}
+
+	/// Get the address of transaction with given hash.
+	fn transaction_address(&self, hash: &H256) -> Option<TransactionAddress> {
+		self.blockchain().transaction_address(hash)
+	}
+
+	/// Get receipts of block with given hash.
+	fn block_receipts(&self, hash: &H256) -> Option<BlockReceipts> {
+		self.blockchain().block_receipts(hash)
+	}
+
+	/// Returns numbers of blocks containing given bloom.
+	fn blocks_with_bloom<'a, B, I, II>(&self, blooms: II, from_block: BlockNumber, to_block: BlockNumber) -> Vec<BlockNumber>
+	where
+		BloomRef<'a>: From<B>,
+		II: IntoIterator<Item = B, IntoIter = I> + Copy,
+		I: Iterator<Item = B> {
+			self.blockchain().blocks_with_bloom(blooms, from_block, to_block)
+	}
+
+
+	/// Returns logs matching given filter. The order of logs returned will be the same as the order of the blocks
+	/// provided. And it's the callers responsibility to sort blocks provided in advance.
+	fn logs<F>(&self, mut blocks: Vec<H256>, matches: F, limit: Option<usize>) -> Vec<LocalizedLogEntry>
+		where F: Fn(&LogEntry) -> bool + Send + Sync, Self: Sized {
+			self.blockchain().logs(blocks, matches, limit)
+	}
+}
+
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 enum CacheId {
 	BlockHeader(H256),
