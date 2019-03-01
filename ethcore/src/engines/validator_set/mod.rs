@@ -37,11 +37,15 @@ use client::EngineClient;
 
 #[cfg(test)]
 pub use self::test::TestSet;
+#[cfg(test)]
+pub use self::multi::Multi as TestMulti;
+
 pub use self::simple_list::SimpleList;
 use self::contract::ValidatorContract;
 use self::safe_contract::ValidatorSafeContract;
 use self::multi::Multi;
 use super::SystemCall;
+
 
 /// Creates a validator set from spec.
 pub fn new_validator_set(spec: ValidatorSpec) -> Box<ValidatorSet> {

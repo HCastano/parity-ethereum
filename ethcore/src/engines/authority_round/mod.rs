@@ -1413,8 +1413,10 @@ impl Engine<EthereumMachine> for AuthorityRound {
 
 		let first = chain_head.number() == 0;
 
-		// apply immediate transitions.
+		// Apply transitions that don't require finality and should be enacted immediately (e.g from chain spec)
 		if let Some(change) = self.validators.is_epoch_end(first, chain_head) {
+			info!(target: "engine", "Immediately applying validator set change signalled at block {}", chain_head.number());
+			self.epoch_manager.lock().note_new_epoch();
 			let change = combine_proofs(chain_head.number(), &change, &[]);
 			return Some(change)
 		}
@@ -1556,7 +1558,7 @@ mod tests {
 	use spec::Spec;
 	use types::transaction::{Action, Transaction};
 	use engines::{Seal, Engine, EngineError, EthEngine};
-	use engines::validator_set::{TestSet, SimpleList};
+	use engines::validator_set::{TestSet, SimpleList, TestMulti};
 	use error::{Error, ErrorKind};
 	use super::{AuthorityRoundParams, AuthorityRound, EmptyStep, SealedEmptyStep, calculate_score};
 
@@ -2330,5 +2332,80 @@ mod tests {
 		empty_steps.reverse();
 		set_empty_steps_seal(&mut header, step, &signature, &empty_steps);
 		assert_eq!(engine.verify_block_family(&header, &parent).unwrap(), ());
+	}
+
+	fn setup_multi() -> (Spec, Arc<AccountProvider>, Vec<Address>) {
+		/// Create a new Spec with AuthorityRound consensus which does internal sealing (not
+		/// requiring work).
+		/// Accounts with secrets keccak("0") and keccak("1") are the validators.
+		let spec = Spec::new_test_round();
+
+		let tap = Arc::new(AccountProvider::transient_provider());
+
+		let addr0 = tap.insert_account(keccak("0").into(), &"0".into()).unwrap();
+		let addr1 = tap.insert_account(keccak("1").into(), &"1".into()).unwrap();
+
+		// Not a validator...yet
+		let addr2 = tap.insert_account(keccak("2").into(), &"2".into()).unwrap();
+
+		let accounts = vec![addr0, addr1, addr2];
+
+		(spec, tap, accounts)
+	}
+
+	fn get_multi_validators() -> TestMulti {
+		use engines::validator_set::ValidatorSet;
+
+		let mut map: BTreeMap<_, Box<ValidatorSet>> = BTreeMap::new();
+		// NOTE: Don't want random ones
+		let list1: Vec<_> = (0..10).map(|_| Address::random()).collect();
+		let list2 = {
+			let mut list = list1.clone();
+			list.push(Address::random());
+			list
+		};
+
+		map.insert(0, Box::new(SimpleList::new(list1)));
+		map.insert(100, Box::new(SimpleList::new(list2)));
+
+		TestMulti::new(map)
+	}
+
+	#[test]
+	fn should_immediately_change_validator_set() {
+		use engines::authority_round::EpochManager;
+		use parking_lot::{Mutex, RwLock};
+		// use engines::authority_round::finality::RollingFinality;
+
+		let multi = get_multi_validators();
+
+		// Want to set up a network with two validators
+		let (spec, tap, accounts) = setup_multi();
+		dbg!(&accounts);
+
+		let mut engine = aura(|p| {
+			p.validators = Box::new(multi);
+		});
+
+		// Will set current header number
+		let mut header = Header::new();
+		header.set_number(99);
+
+		// This is empty :(
+		dbg!(&engine.epoch_manager.lock().validators());
+
+		let mut epoch_manager = engine.epoch_manager.lock();
+		epoch_manager.epoch_transition_number = 100;
+
+		// Next want to ensure that the validator list is just those two
+		// Maybe check with `is_step_proposer()`?
+
+		// Next we want to add validator keccak("2") into the validator list at a future block
+
+		// Check that the list is still only those two nodes
+
+		// Finally, jump past the chosen block and validate that all threee nodes are validators
+
+		assert!(false);
 	}
 }
