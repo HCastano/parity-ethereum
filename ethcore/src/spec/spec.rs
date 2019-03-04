@@ -988,6 +988,13 @@ impl Spec {
 	pub fn new_validator_multi() -> Self {
 		load_bundled!("validator_multi")
 	}
+
+	/// Blah blah
+	#[cfg(any(test, feature = "test-helpers"))]
+	pub fn new_aura_validator_multi() -> Self {
+		load_bundled!("aura_multi")
+	}
+
 }
 
 #[cfg(test)]

@@ -233,6 +233,8 @@ impl EpochManager {
 		// forks it will only need to be called for the block directly after
 		// epoch transition, in which case it will be O(1) and require a single
 		// DB lookup.
+		dbg!(*header.parent_hash());
+		dbg!(&*header);
 		let last_transition = match client.epoch_transition_for(*header.parent_hash()) {
 			Some(t) => t,
 			None => {
@@ -2335,10 +2337,11 @@ mod tests {
 	}
 
 	fn setup_multi() -> (Spec, Arc<AccountProvider>, Vec<Address>) {
-		/// Create a new Spec with AuthorityRound consensus which does internal sealing (not
-		/// requiring work).
-		/// Accounts with secrets keccak("0") and keccak("1") are the validators.
-		let spec = Spec::new_test_round();
+		// Create a new Spec with AuthorityRound consensus which does internal sealing (not
+		// requiring work).
+		// Accounts with secrets keccak("0") and keccak("1") are the validators.
+		// let spec = Spec::new_test_round();
+		let spec = Spec::new_aura_validator_multi();
 
 		let tap = Arc::new(AccountProvider::transient_provider());
 
@@ -2353,15 +2356,14 @@ mod tests {
 		(spec, tap, accounts)
 	}
 
-	fn get_multi_validators() -> TestMulti {
+	fn get_multi_validators(accounts: &Vec<Address>) -> TestMulti {
 		use engines::validator_set::ValidatorSet;
 
 		let mut map: BTreeMap<_, Box<ValidatorSet>> = BTreeMap::new();
-		// NOTE: Don't want random ones
-		let list1: Vec<_> = (0..10).map(|_| Address::random()).collect();
+		let list1 = vec![accounts[0]];
 		let list2 = {
 			let mut list = list1.clone();
-			list.push(Address::random());
+			list.push(accounts[1]);
 			list
 		};
 
@@ -2371,30 +2373,83 @@ mod tests {
 		TestMulti::new(map)
 	}
 
+	fn insert_blocks(engine: &AuthorityRound, spec: &Spec, accounts: &Vec<Address>, tap: Arc<AccountProvider>) {
+		let genesis_header = spec.genesis_header();
+
+		let db1 = spec.ensure_db_good(get_temp_state_db(), &Default::default()).unwrap();
+		let db2 = spec.ensure_db_good(get_temp_state_db(), &Default::default()).unwrap();
+
+		let last_hashes = Arc::new(vec![genesis_header.hash()]);
+
+		// NOTE: Check that the correct address is being used
+		let b1 = OpenBlock::new(
+			engine,
+			Default::default(),
+			false,
+			db1,
+			&genesis_header,
+			last_hashes.clone(),
+			accounts[0],
+			(3141562.into(), 31415620.into()),
+			vec![],
+			false,
+			&mut Vec::new().into_iter(),
+		).unwrap();
+		let b1 = b1.close_and_lock().unwrap();
+
+		// since the block is empty it isn't sealed and we generate empty steps
+		engine.set_signer(Box::new((tap.clone(), accounts[0], "0".into())));
+		assert_eq!(engine.generate_seal(b1.block(), &genesis_header), Seal::None);
+		engine.step();
+
+		let b2 = OpenBlock::new(
+			engine,
+			Default::default(),
+			false,
+			db2,
+			&genesis_header,
+			last_hashes.clone(),
+			accounts[0],
+			(3141562.into(), 31415620.into()),
+			vec![], false,
+			&mut Vec::new().into_iter()
+		).unwrap();
+
+		let b2 = b2.close_and_lock().unwrap();
+		engine.set_signer(Box::new((tap.clone(), accounts[0], "0".into())));
+		assert_eq!(engine.generate_seal(b2.block(), &genesis_header), Seal::None);
+		engine.step();
+	}
+
 	#[test]
 	fn should_immediately_change_validator_set() {
-		use engines::authority_round::EpochManager;
-		use parking_lot::{Mutex, RwLock};
-		// use engines::authority_round::finality::RollingFinality;
-
-		let multi = get_multi_validators();
 
 		// Want to set up a network with two validators
 		let (spec, tap, accounts) = setup_multi();
 		dbg!(&accounts);
+		let multi = get_multi_validators(&accounts);
 
-		let mut engine = aura(|p| {
+		let engine = aura(|p| {
 			p.validators = Box::new(multi);
 		});
 
-		// Will set current header number
+		let mut epoch_manager = engine.epoch_manager.lock();
+
+		let client = generate_dummy_client_with_spec(Spec::new_test_round);
+		engine.register_client(Arc::downgrade(&client) as _);
+
+		insert_blocks(&engine, &spec, &accounts, tap);
+
 		let mut header = Header::new();
-		header.set_number(99);
+		header.set_number(1);
+
+		let c = engine.client.read().as_ref().and_then(|weak| weak.upgrade()).unwrap();
+		let success = epoch_manager.zoom_to(&*c, &engine.machine, &*engine.validators, &header);
+		dbg!(success);
 
 		// This is empty :(
-		dbg!(&engine.epoch_manager.lock().validators());
+		dbg!(&epoch_manager.validators());
 
-		let mut epoch_manager = engine.epoch_manager.lock();
 		epoch_manager.epoch_transition_number = 100;
 
 		// Next want to ensure that the validator list is just those two
@@ -2406,6 +2461,6 @@ mod tests {
 
 		// Finally, jump past the chosen block and validate that all threee nodes are validators
 
-		assert!(false);
+		assert_eq!(42, 24);
 	}
 }

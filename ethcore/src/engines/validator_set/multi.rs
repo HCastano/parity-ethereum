@@ -183,11 +183,13 @@ mod tests {
 		client.transact_contract(Default::default(), Default::default()).unwrap();
 		::client::EngineClient::update_sealing(&*client);
 		assert_eq!(client.chain_info().best_block_number, 0);
+
 		// Right signer for the first block.
 		let signer = Box::new((tap.clone(), v0, "".into()));
 		client.miner().set_author(miner::Author::Sealer(signer));
 		::client::EngineClient::update_sealing(&*client);
 		assert_eq!(client.chain_info().best_block_number, 1);
+
 		// This time v0 is wrong.
 		client.transact_contract(Default::default(), Default::default()).unwrap();
 		::client::EngineClient::update_sealing(&*client);
@@ -196,6 +198,7 @@ mod tests {
 		client.miner().set_author(miner::Author::Sealer(signer));
 		::client::EngineClient::update_sealing(&*client);
 		assert_eq!(client.chain_info().best_block_number, 2);
+
 		// v1 is still good.
 		client.transact_contract(Default::default(), Default::default()).unwrap();
 		::client::EngineClient::update_sealing(&*client);
