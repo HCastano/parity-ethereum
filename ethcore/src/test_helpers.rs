@@ -117,6 +117,8 @@ pub fn generate_dummy_client_with_spec<F>(test_spec: F) -> Arc<Client> where F: 
 pub fn generate_dummy_client_with_spec_and_data<F>(test_spec: F, block_number: u32, txs_per_block: usize, tx_gas_prices: &[U256]) -> Arc<Client> where
 	F: Fn() -> Spec
 {
+	use ::engines::Seal;
+
 	let test_spec = test_spec();
 	let client_db = new_db();
 
@@ -136,7 +138,7 @@ pub fn generate_dummy_client_with_spec_and_data<F>(test_spec: F, block_number: u
 	let mut last_hashes = vec![];
 	let mut last_header = genesis_header.clone();
 
-	let kp = KeyPair::from_secret_slice(&keccak("")).unwrap();
+	let kp = KeyPair::from_secret_slice(&keccak("0")).unwrap();
 	let author = kp.address();
 
 	let mut n = 0;
@@ -159,6 +161,7 @@ pub fn generate_dummy_client_with_spec_and_data<F>(test_spec: F, block_number: u
 		).unwrap();
 		rolling_timestamp += 10;
 		b.set_timestamp(rolling_timestamp);
+		dbg!(&b.env_info());
 
 		// first block we don't have any balance, so can't send any transactions.
 		for _ in 0..txs_per_block {
@@ -173,7 +176,26 @@ pub fn generate_dummy_client_with_spec_and_data<F>(test_spec: F, block_number: u
 			n += 1;
 		}
 
-		let b = b.close_and_lock().unwrap().seal(test_engine, vec![]).unwrap();
+		// Might not want to generate this here...
+		use accounts::AccountProvider;
+		let tap = Arc::new(AccountProvider::transient_provider());
+		let addr0 = tap.insert_account(keccak("0").into(), &"0".into()).unwrap();
+		test_engine.set_signer(Box::new((tap, addr0, "0".into())));
+
+		// let b = b.close_and_lock().unwrap().seal(test_engine, vec![]).unwrap();
+
+		use block::IsBlock;
+		let gen_seal = test_engine.generate_seal(&b.block(), &last_header);
+		dbg!(&gen_seal);
+
+		let b = if let Seal::Regular(seal) = gen_seal {
+			dbg!(&seal);
+			b.close_and_lock().unwrap().seal(test_engine, seal).unwrap()
+		} else {
+			panic!("Failed to generate seal");
+		};
+
+		eprintln!("aww yis");
 
 		if let Err(e) = client.import_block(Unverified::from_rlp(b.rlp_bytes()).unwrap()) {
 			panic!("error importing block which is valid by definition: {:?}", e);

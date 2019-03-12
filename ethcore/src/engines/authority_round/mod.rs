@@ -1032,9 +1032,13 @@ impl Engine<EthereumMachine> for AuthorityRound {
 			return Seal::None;
 		}
 
+
 		let header = block.header();
 		let parent_step = header_step(parent, self.empty_steps_transition)
 			.expect("Header has been verified; qed");
+
+		dbg!(&header);
+		dbg!(&parent);
 
 		let step = self.step.inner.load();
 
@@ -1047,17 +1051,20 @@ impl Engine<EthereumMachine> for AuthorityRound {
 
 		let expected_diff = calculate_score(parent_step, step.into(), empty_steps.len().into());
 
+		eprintln!("Expected Diff");
 		if header.difficulty() != &expected_diff {
 			debug!(target: "engine", "Aborting seal generation. The step or empty_steps have changed in the meantime. {:?} != {:?}",
 				   header.difficulty(), expected_diff);
 			return Seal::None;
 		}
 
+		eprintln!("Parent step");
 		if parent_step > step.into() {
 			warn!(target: "engine", "Aborting seal generation for invalid step: {} > {}", parent_step, step);
 			return Seal::None;
 		}
 
+		eprintln!("Validator Tuple");
 		let (validators, set_number) = match self.epoch_set(header) {
 			Err(err) => {
 				warn!(target: "engine", "Unable to generate seal: {}", err);
@@ -1066,6 +1073,7 @@ impl Engine<EthereumMachine> for AuthorityRound {
 			Ok(ok) => ok,
 		};
 
+		eprintln!("Is Step Proposer");
 		if is_step_proposer(&*validators, header.parent_hash(), step, header.author()) {
 			// this is guarded against by `can_propose` unless the block was signed
 			// on the same step (implies same key) and on a different node.
@@ -1095,6 +1103,7 @@ impl Engine<EthereumMachine> for AuthorityRound {
 				None
 			};
 
+			eprintln!("Signature");
 			if let Ok(signature) = self.sign(header_seal_hash(header, empty_steps_rlp.as_ref().map(|e| &**e))) {
 				trace!(target: "engine", "generate_seal: Issuing a block for step {}.", step);
 
@@ -1130,6 +1139,7 @@ impl Engine<EthereumMachine> for AuthorityRound {
 				header.author(), step);
 		}
 
+		eprintln!("Made it all the way");
 		Seal::None
 	}
 
@@ -1554,7 +1564,9 @@ mod tests {
 	use rlp::encode;
 	use block::*;
 	use test_helpers::{
-		generate_dummy_client_with_spec, get_temp_state_db,
+		generate_dummy_client_with_spec,
+		generate_dummy_client_with_spec_and_data,
+		get_temp_state_db,
 		TestNotify
 	};
 	use spec::Spec;
@@ -2373,7 +2385,15 @@ mod tests {
 		TestMulti::new(map)
 	}
 
-	fn insert_blocks(engine: &AuthorityRound, spec: &Spec, accounts: &Vec<Address>, tap: Arc<AccountProvider>) {
+	// use client::client::Client;
+	/*
+	fn insert_blocks(
+		engine: &AuthorityRound,
+		spec: &Spec,
+		accounts: &Vec<Address>,
+		tap: Arc<AccountProvider>,
+		// client: &Client
+	) {
 		let genesis_header = spec.genesis_header();
 
 		let db1 = spec.ensure_db_good(get_temp_state_db(), &Default::default()).unwrap();
@@ -2401,6 +2421,7 @@ mod tests {
 		engine.set_signer(Box::new((tap.clone(), accounts[0], "0".into())));
 		assert_eq!(engine.generate_seal(b1.block(), &genesis_header), Seal::None);
 		engine.step();
+		client.import_sealed_block(b1).unwrap();
 
 		let b2 = OpenBlock::new(
 			engine,
@@ -2420,6 +2441,7 @@ mod tests {
 		assert_eq!(engine.generate_seal(b2.block(), &genesis_header), Seal::None);
 		engine.step();
 	}
+	*/
 
 	#[test]
 	fn should_immediately_change_validator_set() {
@@ -2435,16 +2457,14 @@ mod tests {
 
 		let mut epoch_manager = engine.epoch_manager.lock();
 
-		let client = generate_dummy_client_with_spec(Spec::new_test_round);
+		use client::BlockId;
+
+		let client = generate_dummy_client_with_spec_and_data(Spec::new_aura_validator_multi, 100, 0, &[]);
 		engine.register_client(Arc::downgrade(&client) as _);
+		let client = engine.client.read().as_ref().and_then(|weak| weak.upgrade()).unwrap();
 
-		insert_blocks(&engine, &spec, &accounts, tap);
-
-		let mut header = Header::new();
-		header.set_number(1);
-
-		let c = engine.client.read().as_ref().and_then(|weak| weak.upgrade()).unwrap();
-		let success = epoch_manager.zoom_to(&*c, &engine.machine, &*engine.validators, &header);
+		let header = client.block_header(BlockId::Number(0)).unwrap().decode().unwrap();
+		let success = epoch_manager.zoom_to(&*client, &engine.machine, &*engine.validators, &header);
 		dbg!(success);
 
 		// This is empty :(
